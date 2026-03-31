@@ -18,15 +18,9 @@ def parse_bms(filepath):
     bpm_table = {}
     stop_table = {}
 
-    notes = []
-    bgm_events = []
-    bpm_changes = []
-    measure_lines = []
-    stop_events = []
-
     ln_obj = ''
-    total_beats = 0.0
-    total_time = 0.0
+
+    raw_data = []
 
     with open(filepath, 'rb') as f:
         lines = f.readlines()
@@ -39,7 +33,7 @@ def parse_bms(filepath):
             m = HEADER_PATTERN.search(decoded_line)
             if m:
                 k = m.group(1).upper()
-                v = m.group(2)
+                v = m.group(2).strip()
 
                 match k:
                     case 'TITLE':
@@ -63,7 +57,7 @@ def parse_bms(filepath):
                             total = float(v)
                         except:
                             pass
-                    case 'LEVEL':
+                    case 'PLAYLEVEL':
                         try:
                             level = int(v)
                         except:
@@ -76,21 +70,29 @@ def parse_bms(filepath):
                     case 'LNOBJ':
                         ln_obj = v
                     case s if s.startswith('WAV'):
-                        wav_table[k[3:]] = v.strip()
+                        wav_table[k[3:]] = v
                     case s if s.startswith('BPM'):
-                        bpm_table[k[3:]] = v.strip()
+                        try:
+                            bpm_table[k[3:]] = float(v)
+                        except:
+                            pass
                     case s if s.startswith('STOP'):
-                        stop_table[k[4:]] = v.strip()
+                        try:
+                            stop_table[k[4:]] = float(v)
+                        except:
+                            pass
 
+                continue
 
-            else:
-                m = DATA_PATTERN.search(decoded_line)
-                if m:
-                    k = m.group(1).upper()
-                    v = m.group(2)
+            m = DATA_PATTERN.search(decoded_line)
+            if m:
+                raw_data.append(m.groups())
 
-                    match k:
-                        case s if s.startswith('BPM'):
+                continue
+    
+    # beat to time
+    for r in raw_data:
+        pass
 
 
 
