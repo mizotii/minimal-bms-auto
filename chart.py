@@ -19,9 +19,9 @@ class BPMChange:
 
 @dataclass
 class MeasureLine:
-    measure: int
     beat: float
     time: float
+    measure: int
 
 @dataclass
 class BGMEvent:
@@ -54,9 +54,9 @@ class Chart:
 
     # events
     notes: List[Note]
-    bgm_events: List[BGMEvent]
     bpm_changes: List[BPMChange]
     measure_lines: List[MeasureLine]
+    bgm_events: List[BGMEvent]
     stop_events: List[StopEvent]
 
     # metadata
