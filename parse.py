@@ -1,10 +1,12 @@
 import re
+from collections import defaultdict
 from chart import Chart
 
 HEADER_PATTERN = re.compile('^#([A-Za-z][A-Za-z0-9]*)[ \t]+(.+)$')
-DATA_PATTERN = re.compile('^#(\d{3})([0-9A-Za-z]{2}):(.*)$')
+DATA_PATTERN = re.compile(r'^#(\d{3})([0-9A-Za-z]{2}):(.*)$')
 
 def parse_bms(filepath):
+    # for final headers that only need one pass
     title = ''
     artist = ''
     genre = ''
@@ -20,7 +22,12 @@ def parse_bms(filepath):
 
     ln_obj = ''
 
-    raw_data = []
+    # for calculating timing / storing data lines
+    measure_count = 0
+    total_beats = 0.0
+
+    raw_data = defaultdict(list)
+    measure_lengths = {}
 
     with open(filepath, 'rb') as f:
         lines = f.readlines()
@@ -86,14 +93,34 @@ def parse_bms(filepath):
 
             m = DATA_PATTERN.search(decoded_line)
             if m:
-                raw_data.append(m.groups())
+                measure, channel, data = m.groups()
+                try:
+                    measure = int(measure)
+                except:
+                    continue
+
+                match channel:
+                    case '02':
+                        try:
+                            measure_lengths[measure] = float(data)
+                        except:
+                            pass
+                    case _:
+                        raw_data[(measure, channel)].append(data)
+
+                measure_count = max(measure, measure_count)
 
                 continue
     
     # beat to time
-    for r in raw_data:
-        pass
+    # import pprint
+    # pprint.pp(raw_data)
+    for i in range(1, measure_count + 1):
+        possible_measure_length = measure_lengths.get(i)
+        measure_length = possible_measure_length if possible_measure_length is not None else 1.0
+        total_beats += measure_length * 4
 
+    print(total_beats)
 
 
 if __name__ == '__main__':
