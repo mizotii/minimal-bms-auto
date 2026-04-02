@@ -36,33 +36,61 @@ class TestCalculateBeats:
 class TestMapBeatsToBpm:
     def test_channel03_at_measure_zero_start(self):
         # single slot 'FE' -> hex 254, beat 0.0
-        result = map_beats_to_bpm({}, [(0, '03', 'FE')])
+        m2b = {0: 0.0}
+        lengths = {0: 1.0}
+        result = map_beats_to_bpm({}, [(0, '03', 'FE')], m2b, lengths)
         assert result.get(0.0) == 254
 
     def test_channel03_midmeasure(self):
-        # '00FE': 2 slots, slot 1 -> fraction 1/2 -> beat 0 + (1/2)*4 = 2.0
-        result = map_beats_to_bpm({}, [(0, '03', '00FE')])
+        # '00FE': 2 slots, slot 1 -> fraction 1/2 -> beat 0 + (1.0 * 4 * 0.5) = 2.0
+        m2b = {0: 0.0}
+        lengths = {0: 1.0}
+        result = map_beats_to_bpm({}, [(0, '03', '00FE')], m2b, lengths)
         assert result.get(2.0) == 254
 
     def test_channel03_at_measure_one_start(self):
-        # measure 1, single slot 'FE' -> absolute beat 4.0
-        result = map_beats_to_bpm({}, [(1, '03', 'FE')])
+        # measure 1 starts at beat 4.0, single slot 'FE' -> absolute beat 4.0
+        m2b = {0: 0.0, 1: 4.0}
+        lengths = {1: 1.0}
+        result = map_beats_to_bpm({}, [(1, '03', 'FE')], m2b, lengths)
         assert result.get(4.0) == 254
 
     def test_channel08_lookup(self):
-        result = map_beats_to_bpm({'01': 180.0}, [(0, '08', '01')])
+        m2b = {0: 0.0}
+        lengths = {0: 1.0}
+        result = map_beats_to_bpm({'01': 180.0}, [(0, '08', '01')], m2b, lengths)
         assert result.get(0.0) == 180.0
 
+    def test_channel08_midmeasure(self):
+        # '0001': 2 slots, slot 1 -> fraction 1/2 -> beat 0 + (1.0 * 4 * 0.5) = 2.0
+        m2b = {0: 0.0}
+        lengths = {0: 1.0}
+        result = map_beats_to_bpm({'01': 180.0}, [(0, '08', '0001')], m2b, lengths)
+        assert result.get(2.0) == 180.0
+
+    def test_channel08_at_measure_one_start(self):
+        # measure 1 starts at beat 4.0, single slot '01' -> absolute beat 4.0
+        m2b = {0: 0.0, 1: 4.0}
+        lengths = {0: 1.0, 1: 1.0}
+        result = map_beats_to_bpm({'01': 180.0}, [(1, '08', '01')], m2b, lengths)
+        assert result.get(4.0) == 180.0
+
     def test_channel08_missing_id_is_skipped(self):
-        result = map_beats_to_bpm({'01': 180.0}, [(0, '08', '02')])
+        m2b = {0: 0.0}
+        lengths = {0: 1.0}
+        result = map_beats_to_bpm({'01': 180.0}, [(0, '08', '02')], m2b, lengths)
         assert len(result) == 0
 
     def test_channel03_zero_slot_is_ignored(self):
-        result = map_beats_to_bpm({}, [(0, '03', '00')])
+        m2b = {0: 0.0}
+        lengths = {0: 1.0}
+        result = map_beats_to_bpm({}, [(0, '03', '00')], m2b, lengths)
         assert len(result) == 0
 
     def test_non_bpm_channel_produces_no_output(self):
-        result = map_beats_to_bpm({}, [(0, '01', 'AB')])
+        m2b = {0: 0.0}
+        lengths = {0: 1.0}
+        result = map_beats_to_bpm({}, [(0, '01', 'AB')], m2b, lengths)
         assert len(result) == 0
 
 
