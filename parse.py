@@ -17,7 +17,9 @@ def parse_bms(filepath):
 
     measure_to_absolute_beat = calculate_beats(measure_count, measure_lengths)
 
-    bpm_changes_raw = map_beats_to_bpm(bpm_table, raw_data)
+    bpm_changes_raw = map_beats_to_bpm(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths)
+
+    # pp(bpm_changes_raw)
 
     time_anchors = calculate_time_anchors(bpm_changes_raw, initial_bpm)
 
@@ -146,11 +148,12 @@ def calculate_beats(measure_count, measure_lengths):
 
     return measure_to_absolute_beat
 
-def map_beats_to_bpm(bpm_table, raw_data):
+def map_beats_to_bpm(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths):
     bpm_changes_raw = {}
 
     def parse_bpm_change_data(measure, channel, data):
         values = [data[i:i+2] for i in range(0, len(data), 2)]
+        
 
         # todo: these cases do something very similar to one another, reorganize
         match channel:
@@ -159,15 +162,19 @@ def map_beats_to_bpm(bpm_table, raw_data):
                 for i, v in enumerate(values):
                     bpm = bpm_table.get(v)
                     if bpm is not None:
-                        relative_beat = i / len(values)
-                        bpm_changes_raw[measure + relative_beat] = bpm
+                        relative_measure = i / len(values)
+                        bpm_changes_raw[measure + relative_measure] = bpm
 
             case '03':
                 for i, v in enumerate(values):
                     if v != '00':
                         bpm = int(v, 16)
-                        relative_beat = i / len(values)
-                        bpm_changes_raw[measure + relative_beat] = bpm
+                        relative_measure = i / len(values)
+                        try:
+                            beat = measure_to_absolute_beat[measure] + (measure_lengths[measure] * relative_measure)
+                        except:
+                            continue
+                        bpm_changes_raw[beat] = bpm
 
             case _:
                 pass
@@ -176,12 +183,12 @@ def map_beats_to_bpm(bpm_table, raw_data):
         if r[1] == '03' or '08':
             parse_bpm_change_data(*r)
 
-    return bpm_changes_raw
+    return dict(sorted(bpm_changes_raw.items()))
 
 def calculate_time_anchors(bpm_changes_raw, initial_bpm):
     time_anchors = [(0.0, 0.0, initial_bpm)]
 
-    for k, v in bpm_changes_raw.items():
+    for k, v in sorted(bpm_changes_raw.items()):
         # c: beat, bpm
         previous_time_anchor = time_anchors[len(time_anchors) - 1]
         previous_beat, previous_time, previous_bpm, current_beat, current_bpm = previous_time_anchor[0], previous_time_anchor[1], previous_time_anchor[2], k, v
@@ -195,3 +202,5 @@ def calculate_time_anchors(bpm_changes_raw, initial_bpm):
 
 if __name__ == '__main__':
     parse_bms('./AltMirroBell_MX_.bme')
+    # print('--')
+    # map_beats_to_bpm({}, [(0, '03', '00FE')])
