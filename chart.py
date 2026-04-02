@@ -1,11 +1,18 @@
+"""Data classes for a parsed BMS chart"""
+
 from dataclasses import dataclass
 from typing import Dict, List
 
 @dataclass
 class Note:
+    """A single playfield note.
+
+    ln_end_time is only meaningful when is_ln_start is True.
+    is_ln_end notes are not rendered, their sound fires at the head.
+    """
     beat: float
     time: float
-    lane: int
+    lane: int          # 0–6 = keys, 7 = scratch
     wav_id: str
     is_ln_start: bool
     is_ln_end: bool
@@ -31,12 +38,14 @@ class BGMEvent:
 
 @dataclass
 class StopEvent:
+    """A scroll stop. The chart freezes for `duration` seconds at this beat."""
     beat: float
     time: float
-    duration: float
+    duration: float  # seconds
 
 @dataclass
 class Chart:
+    """Top-level container returned by parse_bms. All lists are sorted by time."""
     # headers
     title: str
     artist: str
