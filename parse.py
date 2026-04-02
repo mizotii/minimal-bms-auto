@@ -135,17 +135,14 @@ def initial_pass(filepath):
     return title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths
 
 def calculate_beats(measure_count, measure_lengths):
-    if measure_count <= 0:
-        return {0: 0.0}
-
     measure_to_absolute_beat = {}
     total_beats = 0.0
 
     for i in range(measure_count + 1):
         possible_measure_length = measure_lengths.get(i)
         measure_length = possible_measure_length if possible_measure_length is not None else 1.0
-        total_beats += measure_length * 4
         measure_to_absolute_beat[i] = total_beats
+        total_beats += measure_length * 4
 
     return measure_to_absolute_beat
 
