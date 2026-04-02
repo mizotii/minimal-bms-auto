@@ -3,27 +3,38 @@ import re
 from collections import defaultdict
 from chart import BGMEvent, BPMChange, Chart, Note, MeasureLine, StopEvent
 
+# Matches header lines: #KEY value
 HEADER_PATTERN = re.compile('^#([A-Za-z][A-Za-z0-9]*)[ \t]+(.+)$')
+# Matches data lines: #MMMcc:data  (MMM=measure, cc=channel)
 DATA_PATTERN = re.compile(r'^#(\d{3})([0-9A-Za-z]{2}):(.*)$')
     
 def parse_bms(filepath):
+    """Parse a BMS/BME file and return a populated Chart."""
     notes = []
     bpm_changes = []
     measure_lines = []
     bgm_events = []
     stop_events = []
 
-    title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths = initial_pass(filepath)
+    title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths = _read_file(filepath)
 
-    measure_to_absolute_beat = calculate_beats(measure_count, measure_lengths)
+    measure_to_absolute_beat = _build_measure_beats(measure_count, measure_lengths)
 
-    bpm_changes_raw = map_beats_to_bpm(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths)
+    bpm_changes_raw = _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths)
 
-    time_anchors = calculate_time_anchors(bpm_changes_raw, initial_bpm)
+    time_anchors = _build_time_anchors(bpm_changes_raw, initial_bpm)
 
-    pp(time_anchors)
+    # pp(time_anchors)
 
-def initial_pass(filepath):
+
+
+def _read_file(filepath):
+    """Read the file once, collecting all header values and raw data lines.
+
+    Channel 02 (measure length multipliers) is extracted immediately.
+    All other data lines are returned as a flat list of (measure, channel, data) tuples
+    for processing in a second pass once all headers are known.
+    """
     title = ''
     artist = ''
     genre = ''
@@ -134,19 +145,29 @@ def initial_pass(filepath):
 
     return title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths
 
-def calculate_beats(measure_count, measure_lengths):
+def _build_measure_beats(measure_count, measure_lengths):
+    """Build a mapping from measure number to its absolute beat position.
+
+    Each measure is (measure_length * 4) beats wide. Missing entries in
+    measure_lengths default to 1.0 (a standard 4-beat measure).
+    """
     measure_to_absolute_beat = {}
     total_beats = 0.0
 
     for i in range(measure_count + 1):
-        possible_measure_length = measure_lengths.get(i)
-        measure_length = possible_measure_length if possible_measure_length is not None else 1.0
+        measure_length = measure_lengths.get(i, 1.0)
         measure_to_absolute_beat[i] = total_beats
         total_beats += measure_length * 4
 
     return measure_to_absolute_beat
 
-def map_beats_to_bpm(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths):
+def _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths):
+    """Extract BPM change events from raw data and map them to absolute beat positions.
+
+    Channel 03: BPM value is hex-encoded directly in the slot (e.g. 'FE' -> 254).
+    Channel 08: slot value is a key into bpm_table (e.g. '01' -> bpm_table['01']).
+    Returns a dict of {beat: bpm}, sorted by beat.
+    """
     bpm_changes_raw = {}
 
     def parse_bpm_change_data(measure, channel, data):
@@ -162,10 +183,13 @@ def map_beats_to_bpm(bpm_table, raw_data, measure_to_absolute_beat, measure_leng
 
             if bpm is None:
                 continue
+
+            relative_measure = i / len(values)
+            measure_length = measure_lengths.get(measure, 1.0) * 4
+            measure_start_beat = measure_to_absolute_beat.get(measure)
             
             try:
-                relative_measure = i / len(values)
-                beat = measure_to_absolute_beat[measure] + ((measure_lengths[measure] * 4) * relative_measure)
+                beat = measure_start_beat + (measure_length * relative_measure)
             except:
                 continue
 
@@ -177,7 +201,13 @@ def map_beats_to_bpm(bpm_table, raw_data, measure_to_absolute_beat, measure_leng
 
     return dict(sorted(bpm_changes_raw.items()))
 
-def calculate_time_anchors(bpm_changes_raw, initial_bpm):
+def _build_time_anchors(bpm_changes_raw, initial_bpm):
+    """Build a list of (beat, time, bpm) anchors for beat-to-time interpolation.
+
+    Each anchor marks the start of a constant-BPM segment. A BPM change at
+    beat 0 replaces the initial anchor rather than adding a duplicate.
+    Input dict must be sorted by beat (or will be sorted internally).
+    """
     time_anchors = [(0.0, 0.0, initial_bpm)]
 
     for k, v in sorted(bpm_changes_raw.items()):
@@ -193,4 +223,4 @@ def calculate_time_anchors(bpm_changes_raw, initial_bpm):
     return time_anchors
 
 if __name__ == '__main__':
-    parse_bms('./AltMirroBell_MX_.bme')
+    parse_bms('./assets/AltMirroBell_MX_.bme')
