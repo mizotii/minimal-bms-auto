@@ -5,9 +5,25 @@ from chart import BGMEvent, BPMChange, Chart, Note, MeasureLine, StopEvent
 
 HEADER_PATTERN = re.compile('^#([A-Za-z][A-Za-z0-9]*)[ \t]+(.+)$')
 DATA_PATTERN = re.compile(r'^#(\d{3})([0-9A-Za-z]{2}):(.*)$')
-
+    
 def parse_bms(filepath):
-    # for final headers that only need one pass
+    notes = []
+    bpm_changes = []
+    measure_lines = []
+    bgm_events = []
+    stop_events = []
+
+    title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths = initial_pass(filepath)
+
+    measure_to_absolute_beat = calculate_beats(measure_count, measure_lengths)
+
+    bpm_changes_raw = map_beats_to_bpm(bpm_table, raw_data)
+
+    time_anchors = calculate_time_anchors(bpm_changes_raw, initial_bpm)
+
+    pp(time_anchors)
+
+def initial_pass(filepath):
     title = ''
     artist = ''
     genre = ''
@@ -23,20 +39,9 @@ def parse_bms(filepath):
 
     ln_obj = ''
 
-    # for calculating timing / storing data lines
     measure_count = 0
-
     raw_data = []
     measure_lengths = {}
-    bpm_changes_raw = {} # absolute beat -> bpm until next change
-    time_anchors = [] # (beat, time, bpm)
-    measure_to_absolute_beat = {}
-
-    notes = []
-    bpm_changes = []
-    measure_lines = []
-    bgm_events = []
-    stop_events = []
 
     # initial pass for headers and storing data
     with open(filepath, 'rb') as f:
@@ -127,7 +132,10 @@ def parse_bms(filepath):
 
                 continue
 
-    # get the absolute beat position of the start of every measure
+    return title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths
+
+def calculate_beats(measure_count, measure_lengths):
+    measure_to_absolute_beat = {}
     total_beats = 0.0
 
     for i in range(measure_count + 1):
@@ -136,7 +144,11 @@ def parse_bms(filepath):
         total_beats += measure_length * 4
         measure_to_absolute_beat[i] = total_beats
 
-    # get bpm change events
+    return measure_to_absolute_beat
+
+def map_beats_to_bpm(bpm_table, raw_data):
+    bpm_changes_raw = {}
+
     def parse_bpm_change_data(measure, channel, data):
         values = [data[i:i+2] for i in range(0, len(data), 2)]
 
@@ -161,22 +173,17 @@ def parse_bms(filepath):
                 pass
 
     for r in raw_data:
-        # tuple: measure, channel, data
         if r[1] == '03' or '08':
-            parse_bpm_change_data(r[0], r[1], r[2])
+            parse_bpm_change_data(*r)
 
-    pp(bpm_changes_raw)
+    return bpm_changes_raw
 
-    # calculate time given beat, bpm, and previous time anchors
-    time_anchors.append((0.0, 0.0, initial_bpm))
+def calculate_time_anchors(bpm_changes_raw, initial_bpm):
+    time_anchors = [(0.0, 0.0, initial_bpm)]
+
     for k, v in bpm_changes_raw.items():
         # c: beat, bpm
         previous_time_anchor = time_anchors[len(time_anchors) - 1]
-        print(type(previous_time_anchor[0]))
-        print(type(previous_time_anchor[1]))
-        print(type(previous_time_anchor[2]))
-        print(type(k))
-        print(type(v))
         previous_beat, previous_time, previous_bpm, current_beat, current_bpm = previous_time_anchor[0], previous_time_anchor[1], previous_time_anchor[2], k, v
         beat_delta = current_beat - previous_beat
         current_time = (beat_delta * (60.0 / previous_bpm)) + previous_time
@@ -184,14 +191,7 @@ def parse_bms(filepath):
             time_anchors.pop()
         time_anchors.append((current_beat, current_time, current_bpm))
 
-    pp(time_anchors)
-
-"""
-case '01':
-    bgm_events.append(
-        BGMEvent(measure_to_absolute_beat[r[0]], 0.0, 0)
-    )
-"""
+    return time_anchors
 
 if __name__ == '__main__':
     parse_bms('./AltMirroBell_MX_.bme')
