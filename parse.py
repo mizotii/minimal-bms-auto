@@ -135,6 +135,9 @@ def initial_pass(filepath):
     return title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths
 
 def calculate_beats(measure_count, measure_lengths):
+    if measure_count <= 0:
+        return {0: 0.0}
+
     measure_to_absolute_beat = {}
     total_beats = 0.0
 
