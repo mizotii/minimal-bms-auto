@@ -28,6 +28,8 @@ def parse_bms(filepath):
 
     raw_data = []
     measure_lengths = {}
+    bpm_changes_raw = {} # absolute beat -> bpm until next change
+    time_anchors = [] # (beat, time, bpm)
     measure_to_absolute_beat = {}
 
     notes = []
@@ -97,6 +99,8 @@ def parse_bms(filepath):
                             stop_table[k[4:]] = float(v)
                         except:
                             pass
+                    case _:
+                        pass
 
                 continue
             
@@ -104,6 +108,8 @@ def parse_bms(filepath):
             m = DATA_PATTERN.search(decoded_line)
             if m:
                 measure, channel, data = m.groups()
+                data = data.strip()
+
                 try:
                     measure = int(measure)
                 except:
@@ -116,7 +122,7 @@ def parse_bms(filepath):
                         except:
                             pass
                     case _:
-                        raw_data.append(measure, channel, data)
+                        raw_data.append((measure, channel, data))
                 measure_count = max(measure, measure_count)
 
                 continue
@@ -124,20 +130,68 @@ def parse_bms(filepath):
     # get the absolute beat position of the start of every measure
     total_beats = 0.0
 
-    for i in range(1, measure_count + 1):
+    for i in range(measure_count + 1):
         possible_measure_length = measure_lengths.get(i)
         measure_length = possible_measure_length if possible_measure_length is not None else 1.0
         total_beats += measure_length * 4
         measure_to_absolute_beat[i] = total_beats
 
-    # convert raw data to objects
+    # get bpm change events
+    def parse_bpm_change_data(measure, channel, data):
+        values = [data[i:i+2] for i in range(0, len(data), 2)]
+
+        # todo: these cases do something very similar to one another, reorganize
+        match channel:
+            # todo: support stops (case '09')
+            case '08':
+                for i, v in enumerate(values):
+                    bpm = bpm_table.get(v)
+                    if bpm is not None:
+                        relative_beat = i / len(values)
+                        bpm_changes_raw[measure + relative_beat] = bpm
+
+            case '03':
+                for i, v in enumerate(values):
+                    if v != '00':
+                        bpm = int(v, 16)
+                        relative_beat = i / len(values)
+                        bpm_changes_raw[measure + relative_beat] = bpm
+
+            case _:
+                pass
+
     for r in raw_data:
         # tuple: measure, channel, data
-        match r[1]:
-            case '01':
-                bgm_events.append(
-                    BGMEvent(measure_to_absolute_beat[r[0]], )
-                )
+        if r[1] == '03' or '08':
+            parse_bpm_change_data(r[0], r[1], r[2])
+
+    pp(bpm_changes_raw)
+
+    # calculate time given beat, bpm, and previous time anchors
+    time_anchors.append((0.0, 0.0, initial_bpm))
+    for k, v in bpm_changes_raw.items():
+        # c: beat, bpm
+        previous_time_anchor = time_anchors[len(time_anchors) - 1]
+        print(type(previous_time_anchor[0]))
+        print(type(previous_time_anchor[1]))
+        print(type(previous_time_anchor[2]))
+        print(type(k))
+        print(type(v))
+        previous_beat, previous_time, previous_bpm, current_beat, current_bpm = previous_time_anchor[0], previous_time_anchor[1], previous_time_anchor[2], k, v
+        beat_delta = current_beat - previous_beat
+        current_time = (beat_delta * (60.0 / previous_bpm)) + previous_time
+        if previous_beat == current_beat:
+            time_anchors.pop()
+        time_anchors.append((current_beat, current_time, current_bpm))
+
+    pp(time_anchors)
+
+"""
+case '01':
+    bgm_events.append(
+        BGMEvent(measure_to_absolute_beat[r[0]], 0.0, 0)
+    )
+"""
 
 if __name__ == '__main__':
-    parse_bms('./ceu/7keys_white.bms')
+    parse_bms('./AltMirroBell_MX_.bme')
