@@ -23,8 +23,6 @@ CHANNEL_TO_LANE = {
 def parse_bms(filepath):
     """Parse a BMS/BME file and return a populated Chart."""
     notes = []
-    bpm_changes = []
-    measure_lines = []
     bgm_events = []
     stop_events = []
 
@@ -38,11 +36,57 @@ def parse_bms(filepath):
     # for quicker search
     time_anchors_beat_only = [t[0] for t in time_anchors]
         
+    # pp(stop_table)
+
     for r in raw_data:
+        # notes
         if r[1] in {'11', '12', '13', '14', '15', '16', '18', '19'}:
             notes.extend(_create_notes(*r, measure_to_absolute_beat, measure_lengths, time_anchors, time_anchors_beat_only, wav_table, ln_obj))
+        # bgm_events
+        elif r[1] == '01':
+            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
+                bgm_events.append(
+                    BGMEvent(
+                        beat=beat,
+                        time=_beat_to_time(beat, time_anchors, time_anchors_beat_only),
+                        wav_id=v,
+                    )
+                )
+        # stop_events
+        # #STOP11 96
+        # #00109:0011
+        elif r[1] == '09':
+            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
+                duration_beats = stop_table.get(v) / 192.0 * 4.0
+                beat_anchor_index = bisect_right(time_anchors_beat_only, beat) - 1
+                bpm = time_anchors[beat_anchor_index][2]
+                stop_events.append(
+                    StopEvent(
+                        beat=beat,
+                        time=_beat_to_time(beat, time_anchors, time_anchors_beat_only),
+                        duration=duration_beats * 60.0 / bpm
+                    )
+                )
 
     final_note = notes[len(notes) - 1]
+    
+    bpm_changes = [
+        BPMChange(
+            beat=b,
+            time=t,
+            bpm=p,
+        )
+        for b, t, p in time_anchors
+    ]
+
+    measure_lines = [
+        MeasureLine(
+            beat=b,
+            time=_beat_to_time(b, time_anchors, time_anchors_beat_only),
+            measure=m,
+        )
+        for m, b in measure_to_absolute_beat.items()
+    ]
 
     return Chart(
         title=title,
