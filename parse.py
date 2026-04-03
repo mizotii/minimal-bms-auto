@@ -33,16 +33,11 @@ def parse_bms(filepath):
     bpm_changes_raw = _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths)
 
     time_anchors = _build_time_anchors(bpm_changes_raw, initial_bpm)
-    # for quicker search
     time_anchors_beat_only = [t[0] for t in time_anchors]
-        
-    # pp(stop_table)
 
     for r in raw_data:
-        # notes
         if r[1] in {'11', '12', '13', '14', '15', '16', '18', '19'}:
             notes.extend(_create_notes(*r, measure_to_absolute_beat, measure_lengths, time_anchors, time_anchors_beat_only, wav_table, ln_obj))
-        # bgm_events
         elif r[1] == '01':
             for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
                 bgm_events.append(
@@ -52,9 +47,6 @@ def parse_bms(filepath):
                         wav_id=v,
                     )
                 )
-        # stop_events
-        # #STOP11 96
-        # #00109:0011
         elif r[1] == '09':
             for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
                 duration_beats = stop_table.get(v) / 192.0 * 4.0
@@ -68,7 +60,19 @@ def parse_bms(filepath):
                     )
                 )
 
-    final_note = notes[len(notes) - 1]
+    final_note = notes[-1]
+
+    # find notes before notes that are ln ends
+    notes_indexed_by_lane = [None] * 8
+
+    for note in notes:
+        if note.is_ln_end:
+            previous_note = notes_indexed_by_lane[note.lane]
+            if previous_note:
+                previous_note.is_ln_start = True
+                previous_note.ln_end_time = note.time
+        else:
+            notes_indexed_by_lane[note.lane] = note
     
     bpm_changes = [
         BPMChange(
@@ -178,7 +182,6 @@ def _read_file(filepath):
     raw_data = []
     measure_lengths = {}
 
-    # initial pass for headers and storing data
     with open(filepath, 'rb') as f:
         lines = f.readlines()
         for line in lines:
@@ -285,24 +288,6 @@ def _build_measure_beats(measure_count, measure_lengths):
 
     return measure_to_absolute_beat
 
-def parse_bpm_change_data(measure, channel, data, bpm_table, measure_to_absolute_beat, measure_lengths):
-    bpm_changes_raw = {}
-
-    for beat, v in _decode_slots(measure, data, measure_to_absolute_beat, measure_lengths):
-        # todo: support for channel 09
-        bpm = (
-            bpm_table.get(v) if channel == '08'
-            else int(v, 16) if v != '00'
-            else None
-        )
-
-        if bpm is None:
-            continue
-
-        bpm_changes_raw[beat] = bpm
-
-    return bpm_changes_raw
-
 def _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths):
     """Extract BPM change events from raw data and map them to absolute beat positions.
 
@@ -313,8 +298,16 @@ def _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_l
     bpm_changes_raw = {}
 
     for r in raw_data:
-        if r[1] == '03' or r[1] == '08':
-            bpm_changes_raw.update(parse_bpm_change_data(*r, bpm_table, measure_to_absolute_beat, measure_lengths))
+        if r[1] in ('03', '08'):
+            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
+                bpm = (
+                    bpm_table.get(v) if r[1] == '08'
+                    else int(v, 16) if v != '00'
+                    else None
+                )
+
+                if bpm is not None:
+                    bpm_changes_raw[beat] = bpm
 
     return dict(sorted(bpm_changes_raw.items()))
 
@@ -328,7 +321,6 @@ def _build_time_anchors(bpm_changes_raw, initial_bpm):
     time_anchors = [(0.0, 0.0, initial_bpm)]
 
     for k, v in sorted(bpm_changes_raw.items()):
-        # c: beat, bpm
         previous_time_anchor = time_anchors[len(time_anchors) - 1]
         previous_beat, previous_time, previous_bpm, current_beat, current_bpm = previous_time_anchor[0], previous_time_anchor[1], previous_time_anchor[2], k, v
         beat_delta = current_beat - previous_beat
