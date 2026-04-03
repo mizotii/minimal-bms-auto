@@ -1,3 +1,4 @@
+from bisect import bisect_right
 from pprint import pp
 import re
 from collections import defaultdict
@@ -7,6 +8,17 @@ from chart import BGMEvent, BPMChange, Chart, Note, MeasureLine, StopEvent
 HEADER_PATTERN = re.compile('^#([A-Za-z][A-Za-z0-9]*)[ \t]+(.+)$')
 # Matches data lines: #MMMcc:data  (MMM=measure, cc=channel)
 DATA_PATTERN = re.compile(r'^#(\d{3})([0-9A-Za-z]{2}):(.*)$')
+
+CHANNEL_TO_LANE = {
+    '11': 0,
+    '12': 1,
+    '13': 2,
+    '14': 3,
+    '15': 4,
+    '18': 5,
+    '19': 6,
+    '16': 7,
+}
     
 def parse_bms(filepath):
     """Parse a BMS/BME file and return a populated Chart."""
@@ -23,10 +35,78 @@ def parse_bms(filepath):
     bpm_changes_raw = _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths)
 
     time_anchors = _build_time_anchors(bpm_changes_raw, initial_bpm)
+    # for quicker search
+    time_anchors_beat_only = [t[0] for t in time_anchors]
+        
+    for r in raw_data:
+        if r[1] in {'11', '12', '13', '14', '15', '16', '18', '19'}:
+            notes.extend(_create_notes(*r, measure_to_absolute_beat, measure_lengths, time_anchors, time_anchors_beat_only, wav_table, ln_obj))
 
-    # pp(time_anchors)
+    final_note = notes[len(notes) - 1]
 
+    return Chart(
+        title=title,
+        artist=artist,
+        genre=genre,
+        initial_bpm=initial_bpm,
+        rank=rank,
+        total=total,
+        level=level,
+        player=player,
+        wav_table=wav_table,
+        bpm_table=bpm_table,
+        stop_table=stop_table,
+        notes=notes,
+        bpm_changes=bpm_changes,
+        measure_lines=measure_lines,
+        bgm_events=bgm_events,
+        stop_events=stop_events,
+        ln_obj=ln_obj,
+        total_beats=final_note.beat,
+        total_time=final_note.time,
+    )
 
+def _decode_slots(measure, data, measure_to_absolute_beat, measure_lengths):
+    """Yield (beat, slot_id) for every non-zero slot in a data string."""
+    values = [data[i:i+2] for i in range(0, len(data), 2)]
+    measure_start = measure_to_absolute_beat.get(measure, 0.0)
+    measure_beats = measure_lengths.get(measure, 1.0) * 4
+
+    for i, v in enumerate(values):
+        if v == '00':
+            continue
+        
+        beat = measure_start + (measure_beats * i / len(values))
+        yield beat, v
+
+def _beat_to_time(beat, time_anchors, time_anchors_beat_only):
+    beat_anchor_index = bisect_right(time_anchors_beat_only, beat) - 1
+    start_measure = time_anchors[beat_anchor_index]
+    beat_delta = beat - start_measure[0]
+    time_delta = beat_delta * (60.0 / start_measure[2])
+    return start_measure[1] + time_delta
+        
+def _create_notes(measure, channel, data, measure_to_absolute_beat, measure_lengths, time_anchors, time_anchors_beat_only, wav_table, ln_obj):
+    notes = []
+
+    for beat, v in _decode_slots(measure, data, measure_to_absolute_beat, measure_lengths):
+        time = _beat_to_time(beat, time_anchors, time_anchors_beat_only)
+        lane = CHANNEL_TO_LANE.get(channel)
+        wav_id = wav_table.get(v)
+        is_ln_end = wav_id == ln_obj
+        notes.append(
+            Note(
+                beat=beat,
+                time=time,
+                lane=lane,
+                wav_id=wav_id,
+                is_ln_start=False,
+                is_ln_end=is_ln_end,
+                ln_end_time=0.0,
+            )
+        )
+
+    return notes
 
 def _read_file(filepath):
     """Read the file once, collecting all header values and raw data lines.
@@ -161,6 +241,24 @@ def _build_measure_beats(measure_count, measure_lengths):
 
     return measure_to_absolute_beat
 
+def parse_bpm_change_data(measure, channel, data, bpm_table, measure_to_absolute_beat, measure_lengths):
+    bpm_changes_raw = {}
+
+    for beat, v in _decode_slots(measure, data, measure_to_absolute_beat, measure_lengths):
+        # todo: support for channel 09
+        bpm = (
+            bpm_table.get(v) if channel == '08'
+            else int(v, 16) if v != '00'
+            else None
+        )
+
+        if bpm is None:
+            continue
+
+        bpm_changes_raw[beat] = bpm
+
+    return bpm_changes_raw
+
 def _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths):
     """Extract BPM change events from raw data and map them to absolute beat positions.
 
@@ -170,34 +268,9 @@ def _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_l
     """
     bpm_changes_raw = {}
 
-    def parse_bpm_change_data(measure, channel, data):
-        values = [data[i:i+2] for i in range(0, len(data), 2)]
-
-        for i, v in enumerate(values):
-            # todo: support for channel 09
-            bpm = (
-                bpm_table.get(v) if channel == '08'
-                else int(v, 16) if v != '00'
-                else None
-            )
-
-            if bpm is None:
-                continue
-
-            relative_measure = i / len(values)
-            measure_length = measure_lengths.get(measure, 1.0) * 4
-            measure_start_beat = measure_to_absolute_beat.get(measure)
-            
-            try:
-                beat = measure_start_beat + (measure_length * relative_measure)
-            except:
-                continue
-
-            bpm_changes_raw[beat] = bpm
-
     for r in raw_data:
-        if r[1] == '03' or r[1] ==  '08':
-            parse_bpm_change_data(*r)
+        if r[1] == '03' or r[1] == '08':
+            bpm_changes_raw.update(parse_bpm_change_data(*r, bpm_table, measure_to_absolute_beat, measure_lengths))
 
     return dict(sorted(bpm_changes_raw.items()))
 
@@ -223,4 +296,5 @@ def _build_time_anchors(bpm_changes_raw, initial_bpm):
     return time_anchors
 
 if __name__ == '__main__':
-    parse_bms('./assets/AltMirroBell_MX_.bme')
+    chart = parse_bms('./assets/AltMirroBell_MX_EXH.bme')
+    pp(chart)
