@@ -31,6 +31,7 @@ def parse_bms(filepath):
     measure_to_absolute_beat = _build_measure_beats(measure_count, measure_lengths)
 
     bpm_changes_raw = _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths)
+    stop_events_raw = _extract_stop_events(stop_table, raw_data, measure_to_absolute_beat, measure_lengths)
 
     time_anchors = _build_time_anchors(bpm_changes_raw, initial_bpm)
     time_anchors_beat_only = [t[0] for t in time_anchors]
@@ -39,6 +40,7 @@ def parse_bms(filepath):
         if r[1] in {'11', '12', '13', '14', '15', '16', '18', '19'}:
             notes.extend(_create_notes(*r, measure_to_absolute_beat, measure_lengths, time_anchors, time_anchors_beat_only, wav_table, ln_obj))
         elif r[1] == '01':
+            # todo: later beat wins?
             for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
                 bgm_events.append(
                     BGMEvent(
@@ -60,6 +62,8 @@ def parse_bms(filepath):
                     )
                 )
 
+    notes.sort()
+    bgm_events.sort()
     final_note = notes[-1]
 
     # find notes before notes that are ln ends
@@ -141,7 +145,7 @@ def _create_notes(measure, channel, data, measure_to_absolute_beat, measure_leng
         time = _beat_to_time(beat, time_anchors, time_anchors_beat_only)
         lane = CHANNEL_TO_LANE.get(channel)
         wav_id = wav_table.get(v)
-        is_ln_end = wav_id == ln_obj
+        is_ln_end = v == ln_obj
         notes.append(
             Note(
                 beat=beat,
@@ -311,6 +315,18 @@ def _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_l
 
     return dict(sorted(bpm_changes_raw.items()))
 
+def _extract_stop_events(stop_table, raw_data, measure_to_absolute_beat, measure_lengths):
+    stop_events_raw = {}
+
+    for r in raw_data:
+        if r[1] == '09':
+            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
+                stop_val = stop_table.get(v)                
+                stop_events_raw[beat] = stop_val
+
+    return dict(sorted(stop_events_raw.items()))
+
+
 def _build_time_anchors(bpm_changes_raw, initial_bpm):
     """Build a list of (beat, time, bpm) anchors for beat-to-time interpolation.
 
@@ -320,8 +336,10 @@ def _build_time_anchors(bpm_changes_raw, initial_bpm):
     """
     time_anchors = [(0.0, 0.0, initial_bpm)]
 
+    # todo: add stops
+
     for k, v in sorted(bpm_changes_raw.items()):
-        previous_time_anchor = time_anchors[len(time_anchors) - 1]
+        previous_time_anchor = time_anchors[-1]
         previous_beat, previous_time, previous_bpm, current_beat, current_bpm = previous_time_anchor[0], previous_time_anchor[1], previous_time_anchor[2], k, v
         beat_delta = current_beat - previous_beat
         current_time = (beat_delta * (60.0 / previous_bpm)) + previous_time
@@ -330,6 +348,9 @@ def _build_time_anchors(bpm_changes_raw, initial_bpm):
         time_anchors.append((current_beat, current_time, current_bpm))
 
     return time_anchors
+
+def _calculate_stop_duration(bpm, stop_val):
+    return (240.0 / bpm) * (stop_val / 192.0)
 
 if __name__ == '__main__':
     chart = parse_bms('./assets/AltMirroBell_MX_EXH.bme')
