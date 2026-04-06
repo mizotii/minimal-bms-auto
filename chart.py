@@ -30,7 +30,7 @@ class MeasureLine:
     time: float
     measure: int
 
-@dataclass
+@dataclass(order=True)
 class BGMEvent:
     beat: float
     time: float
