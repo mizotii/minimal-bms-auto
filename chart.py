@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Dict, List
 
-@dataclass
+@dataclass(order=True)
 class Note:
     """A single playfield note.
 
