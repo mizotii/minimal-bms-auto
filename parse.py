@@ -1,14 +1,11 @@
-from bisect import bisect_right
-from pprint import pp
-import re
-from collections import defaultdict
 from chart import BGMEvent, BPMChange, Chart, Note, MeasureLine, StopEvent
+from bisect import bisect_left, bisect_right
+from parse_helpers import _decode_line
+import re
+from typing import List
 
-# Matches header lines: #KEY value
 HEADER_PATTERN = re.compile('^#([A-Za-z][A-Za-z0-9]*)[ \t]+(.+)$')
-# Matches data lines: #MMMcc:data  (MMM=measure, cc=channel)
 DATA_PATTERN = re.compile(r'^#(\d{3})([0-9A-Za-z]{2}):(.*)$')
-
 CHANNEL_TO_LANE = {
     '11': 0,
     '12': 1,
@@ -19,339 +16,327 @@ CHANNEL_TO_LANE = {
     '19': 6,
     '16': 7,
 }
-    
-def parse_bms(filepath):
-    """Parse a BMS/BME file and return a populated Chart."""
-    notes = []
-    bgm_events = []
-    stop_events = []
 
-    title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths = _read_file(filepath)
+class _BMSParser:
+    def __init__(self, filepath) -> None:
+        self.filepath = filepath
 
-    measure_to_absolute_beat = _build_measure_beats(measure_count, measure_lengths)
+        # headers
+        self.title = ''
+        self.artist = ''
+        self.genre = ''
+        self.initial_bpm = 120.0
+        self.rank = 0
+        self.total = 0.0
+        self.level = 0
+        self.player = 0
+        self.ln_obj = ''
 
-    bpm_changes_raw = _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths)
-    stop_events_raw = _extract_stop_events(stop_table, raw_data, measure_to_absolute_beat, measure_lengths)
+        # events
+        self.notes: List[Note] = []
+        self.bpm_changes: List[BPMChange] = []
+        self.measure_lines: List[MeasureLine] = []
+        self.bgm_events: List[BGMEvent] = []
+        self.stop_events: List[StopEvent] = []
 
-    time_anchors = _build_time_anchors(bpm_changes_raw, initial_bpm)
-    time_anchors_beat_only = [t[0] for t in time_anchors]
+        # tables
+        self.wav_table = {}
+        self.bpm_table = {}
+        self.stop_table = {}
 
-    for r in raw_data:
-        if r[1] in {'11', '12', '13', '14', '15', '16', '18', '19'}:
-            notes.extend(_create_notes(*r, measure_to_absolute_beat, measure_lengths, time_anchors, time_anchors_beat_only, wav_table, ln_obj))
-        elif r[1] == '01':
-            # todo: later beat wins?
-            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
-                bgm_events.append(
-                    BGMEvent(
-                        beat=beat,
-                        time=_beat_to_time(beat, time_anchors, time_anchors_beat_only),
-                        wav_id=v,
-                    )
-                )
-        elif r[1] == '09':
-            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
-                duration_beats = stop_table.get(v) / 192.0 * 4.0
-                beat_anchor_index = bisect_right(time_anchors_beat_only, beat) - 1
-                bpm = time_anchors[beat_anchor_index][2]
-                stop_events.append(
-                    StopEvent(
-                        beat=beat,
-                        time=_beat_to_time(beat, time_anchors, time_anchors_beat_only),
-                        duration=duration_beats * 60.0 / bpm
-                    )
-                )
+        # raw data
+        self.measure_lengths = {}
+        self.raw_data = []
+        self.measure_count = 0
 
-    notes.sort()
-    bgm_events.sort()
-    final_note = notes[-1]
+        self.measure_starts = {}
+        self.timing_changes_raw = []
+        self.timing_changes = {}
 
-    # find notes before notes that are ln ends
-    notes_indexed_by_lane = [None] * 8
+        self.bpm_changes_beat_only = []
 
-    for note in notes:
-        if note.is_ln_end:
-            previous_note = notes_indexed_by_lane[note.lane]
-            if previous_note:
-                previous_note.is_ln_start = True
-                previous_note.ln_end_time = note.time
-        else:
-            notes_indexed_by_lane[note.lane] = note
-    
-    bpm_changes = [
-        BPMChange(
-            beat=b,
-            time=t,
-            bpm=p,
+        self.final_note: Note = None
+
+    def build(self):
+        self._read_file()
+        self._calc_measure_starts()
+        self._extract_timing_changes()
+        self._build_bpm_changes()
+        self._build_events()
+        self._resolve_lns()
+
+        return Chart(
+            title=self.title,
+            artist=self.artist,
+            genre=self.genre,
+            initial_bpm=self.initial_bpm,
+            rank=self.rank,
+            total=self.total,
+            level=self.level,
+            player=self.player,
+            wav_table=self.wav_table,
+            bpm_table=self.bpm_table,
+            stop_table=self.stop_table,
+            notes=self.notes,
+            bpm_changes=self.bpm_changes,
+            measure_lines=self.measure_lines,
+            bgm_events=self.bgm_events,
+            stop_events=self.stop_events,
+            ln_obj=self.ln_obj,
+            total_beats=self.final_note.beat,
+            total_time=self.final_note.time,
         )
-        for b, t, p in time_anchors
-    ]
 
-    measure_lines = [
-        MeasureLine(
-            beat=b,
-            time=_beat_to_time(b, time_anchors, time_anchors_beat_only),
-            measure=m,
-        )
-        for m, b in measure_to_absolute_beat.items()
-    ]
+    def _read_file(self):
+        with open(self.filepath, 'rb') as f:
+            lines = f.readlines()
+            for line in lines:
+                decoded_line = _decode_line(line)
 
-    return Chart(
-        title=title,
-        artist=artist,
-        genre=genre,
-        initial_bpm=initial_bpm,
-        rank=rank,
-        total=total,
-        level=level,
-        player=player,
-        wav_table=wav_table,
-        bpm_table=bpm_table,
-        stop_table=stop_table,
-        notes=notes,
-        bpm_changes=bpm_changes,
-        measure_lines=measure_lines,
-        bgm_events=bgm_events,
-        stop_events=stop_events,
-        ln_obj=ln_obj,
-        total_beats=final_note.beat,
-        total_time=final_note.time,
-    )
+                match = HEADER_PATTERN.search(decoded_line)
+                if match:
+                    self._fill_header(match)
+                    continue
 
-def _decode_slots(measure, data, measure_to_absolute_beat, measure_lengths):
-    """Yield (beat, slot_id) for every non-zero slot in a data string."""
-    values = [data[i:i+2] for i in range(0, len(data), 2)]
-    measure_start = measure_to_absolute_beat.get(measure, 0.0)
-    measure_beats = measure_lengths.get(measure, 1.0) * 4
+                match = DATA_PATTERN.search(decoded_line)
+                if match:
+                    self._fill_data(match)
 
-    for i, v in enumerate(values):
-        if v == '00':
-            continue
+    def _calc_measure_starts(self):
+        total_beats = 0.0
+
+        for i in range(self.measure_count + 1):
+            measure_length = self.measure_lengths.get(i, 1.0)
+            self.measure_starts[i] = total_beats
+            total_beats += measure_length * 4
+
+    def _extract_timing_changes(self):
+        for tcr in self.timing_changes_raw:
+            measure, channel, data = tcr
+            for beat, v in self._decode_slots(measure, data):
+                match channel:
+                    case '03':
+                        bpm = int(v, 16)
+                    case '08':
+                        bpm = self.bpm_table.get(v)
+                    # todo: stop events
+                    case '09':
+                        bpm = self.stop_table.get(v)
+                        continue
+                    case _:
+                        continue
+
+                self.timing_changes[(beat, channel, v)] = bpm
         
-        beat = measure_start + (measure_beats * i / len(values))
-        yield beat, v
+        self.timing_changes = dict(sorted(self.timing_changes.items()))
 
-def _beat_to_time(beat, time_anchors, time_anchors_beat_only):
-    beat_anchor_index = bisect_right(time_anchors_beat_only, beat) - 1
-    start_measure = time_anchors[beat_anchor_index]
-    beat_delta = beat - start_measure[0]
-    time_delta = beat_delta * (60.0 / start_measure[2])
-    return start_measure[1] + time_delta
-        
-def _create_notes(measure, channel, data, measure_to_absolute_beat, measure_lengths, time_anchors, time_anchors_beat_only, wav_table, ln_obj):
-    notes = []
-
-    for beat, v in _decode_slots(measure, data, measure_to_absolute_beat, measure_lengths):
-        time = _beat_to_time(beat, time_anchors, time_anchors_beat_only)
-        lane = CHANNEL_TO_LANE.get(channel)
-        wav_id = wav_table.get(v)
-        is_ln_end = v == ln_obj
-        notes.append(
-            Note(
-                beat=beat,
-                time=time,
-                lane=lane,
-                wav_id=wav_id,
-                is_ln_start=False,
-                is_ln_end=is_ln_end,
-                ln_end_time=0.0,
+    def _build_bpm_changes(self):
+        # only read in initial bpm AFTER first pass
+        self.bpm_changes.append(
+            BPMChange(
+                0.0,
+                0.0,
+                self.initial_bpm,
             )
         )
 
-    return notes
+        for k, bpm in self.timing_changes.items():
+            beat, channel, v = k
 
-def _read_file(filepath):
-    """Read the file once, collecting all header values and raw data lines.
+            if channel in ('03', '08'):
+                prev_bpm_change = self.bpm_changes[-1]
+                prev_beat, prev_time, prev_bpm = prev_bpm_change.beat, prev_bpm_change.time, prev_bpm_change.bpm
 
-    Channel 02 (measure length multipliers) is extracted immediately.
-    All other data lines are returned as a flat list of (measure, channel, data) tuples
-    for processing in a second pass once all headers are known.
-    """
-    title = ''
-    artist = ''
-    genre = ''
-    initial_bpm = 120.0
-    rank = 0
-    total = 0.0
-    level = 0
-    player = 0
+                beat_delta = beat - prev_beat
+                time = (beat_delta * (60.0 / prev_bpm)) + prev_time
 
-    wav_table = {}
-    bpm_table = {}
-    stop_table = {}
+                if prev_beat == beat:
+                    self.bpm_changes.pop()
 
-    ln_obj = ''
-
-    measure_count = 0
-    raw_data = []
-    measure_lengths = {}
-
-    with open(filepath, 'rb') as f:
-        lines = f.readlines()
-        for line in lines:
-            try:
-                decoded_line = line.decode('shift_jis')
-            except ValueError:
-                decoded_line = line.decode('latin-1')
-            
-            # store headers
-            m = HEADER_PATTERN.search(decoded_line)
-            if m:
-                k = m.group(1).upper()
-                v = m.group(2).strip()
-
-                match k:
-                    case 'TITLE':
-                        title = v
-                    case 'ARTIST':
-                        artist = v
-                    case 'GENRE':
-                        genre = v
-                    case 'BPM':
-                        try:
-                            initial_bpm = float(v)
-                        except:
-                            pass
-                    case 'RANK':
-                        try:
-                            rank = int(v)
-                        except:
-                            pass
-                    case 'TOTAL':
-                        try:
-                            total = float(v)
-                        except:
-                            pass
-                    case 'PLAYLEVEL':
-                        try:
-                            level = int(v)
-                        except:
-                            pass
-                    case 'PLAYER':
-                        try:
-                            player = int(v)
-                        except:
-                            pass
-                    case 'LNOBJ':
-                        ln_obj = v
-                    case s if s.startswith('WAV'):
-                        wav_table[k[3:]] = v
-                    case s if s.startswith('BPM'):
-                        try:
-                            bpm_table[k[3:]] = float(v)
-                        except:
-                            pass
-                    case s if s.startswith('STOP'):
-                        try:
-                            stop_table[k[4:]] = float(v)
-                        except:
-                            pass
-                    case _:
-                        pass
-
-                continue
-            
-            # or store data
-            m = DATA_PATTERN.search(decoded_line)
-            if m:
-                measure, channel, data = m.groups()
-                data = data.strip()
-
-                try:
-                    measure = int(measure)
-                except:
-                    continue
-
-                match channel:
-                    case '02':
-                        try:
-                            measure_lengths[measure] = float(data)
-                        except:
-                            pass
-                    case _:
-                        raw_data.append((measure, channel, data))
-                measure_count = max(measure, measure_count)
-
-                continue
-
-    return title, artist, genre, initial_bpm, rank, total, level, player, wav_table, bpm_table, stop_table, ln_obj, measure_count, raw_data, measure_lengths
-
-def _build_measure_beats(measure_count, measure_lengths):
-    """Build a mapping from measure number to its absolute beat position.
-
-    Each measure is (measure_length * 4) beats wide. Missing entries in
-    measure_lengths default to 1.0 (a standard 4-beat measure).
-    """
-    measure_to_absolute_beat = {}
-    total_beats = 0.0
-
-    for i in range(measure_count + 1):
-        measure_length = measure_lengths.get(i, 1.0)
-        measure_to_absolute_beat[i] = total_beats
-        total_beats += measure_length * 4
-
-    return measure_to_absolute_beat
-
-def _extract_bpm_events(bpm_table, raw_data, measure_to_absolute_beat, measure_lengths):
-    """Extract BPM change events from raw data and map them to absolute beat positions.
-
-    Channel 03: BPM value is hex-encoded directly in the slot (e.g. 'FE' -> 254).
-    Channel 08: slot value is a key into bpm_table (e.g. '01' -> bpm_table['01']).
-    Returns a dict of {beat: bpm}, sorted by beat.
-    """
-    bpm_changes_raw = {}
-
-    for r in raw_data:
-        if r[1] in ('03', '08'):
-            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
-                bpm = (
-                    bpm_table.get(v) if r[1] == '08'
-                    else int(v, 16) if v != '00'
-                    else None
+            # todo: have stop events affect time in each change
+            elif channel == '09':
+                self.stop_events.append(
+                    StopEvent(
+                        beat,
+                        self._beat_to_time(beat),
+                        self._calculate_stop_duration(v, bpm)
+                    )
                 )
+                continue
+            
+            self.bpm_changes.append(
+                BPMChange(
+                    beat,
+                    time,
+                    bpm,
+                )
+            )
 
-                if bpm is not None:
-                    bpm_changes_raw[beat] = bpm
+        self.bpm_changes.sort()
+        self.bpm_changes_beat_only = [c.beat for c in self.bpm_changes]
 
-    return dict(sorted(bpm_changes_raw.items()))
+    def _build_events(self):
+        for r in self.raw_data:
+            measure, channel, data = r
+            match channel:
+                case '01': # BGM events
+                    for beat, v in self._decode_slots(measure, data):
+                        self.bgm_events.append(
+                            BGMEvent(
+                                beat,
+                                self._beat_to_time(beat),
+                                v,
+                            )
+                        )
+                case c if c in CHANNEL_TO_LANE: # notes
+                    self.notes.extend(self._build_notes(measure, channel, data))
 
-def _extract_stop_events(stop_table, raw_data, measure_to_absolute_beat, measure_lengths):
-    stop_events_raw = {}
+        self._build_measure_lines()
 
-    for r in raw_data:
-        if r[1] == '09':
-            for beat, v in _decode_slots(r[0], r[2], measure_to_absolute_beat, measure_lengths):
-                stop_val = stop_table.get(v)                
-                stop_events_raw[beat] = stop_val
+    def _fill_header(self, match):
+        k = match.group(1).upper()
+        v = match.group(2).strip()
 
-    return dict(sorted(stop_events_raw.items()))
+        match k:
+            case 'TITLE':
+                self.title = v
+            case 'ARTIST':
+                self.artist = v
+            case 'GENRE':
+                self.genre = v
+            case 'BPM':
+                try:
+                    self.initial_bpm = float(v)
+                except ValueError:
+                    pass
+            case 'RANK':
+                try:
+                    self.rank = int(v)
+                except ValueError:
+                    pass
+            case 'TOTAL':
+                try:
+                    self.total = float(v)
+                except ValueError:
+                    pass
+            case 'PLAYLEVEL':
+                try:
+                    self.level = int(v)
+                except ValueError:
+                    pass
+            case 'PLAYER':
+                try:
+                    self.player = int(v)
+                except ValueError:
+                    pass
+            case 'LNOBJ':
+                self.ln_obj = v
+            case s if s.startswith('WAV'):
+                self.wav_table[k[3:]] = v
+            case s if s.startswith('BPM'):
+                try:
+                    self.bpm_table[k[3:]] = float(v)
+                except ValueError:
+                    pass
+            case s if s.startswith('STOP'):
+                try:
+                    self.stop_table[k[4:]] = float(v)
+                except ValueError:
+                    pass
+            case _:
+                pass
 
+    def _fill_data(self, match):
+        measure, channel, data = match.groups()
+        data = data.strip()
 
-def _build_time_anchors(bpm_changes_raw, initial_bpm):
-    """Build a list of (beat, time, bpm) anchors for beat-to-time interpolation.
+        try:
+            measure = int(measure)
+        except ValueError:
+            return
 
-    Each anchor marks the start of a constant-BPM segment. A BPM change at
-    beat 0 replaces the initial anchor rather than adding a duplicate.
-    Input dict must be sorted by beat (or will be sorted internally).
-    """
-    time_anchors = [(0.0, 0.0, initial_bpm)]
+        match channel:
+            case '02':
+                try:
+                    self.measure_lengths[measure] = float(data)
+                except ValueError:
+                    pass
+            case '03' | '08' | '09':
+                try:
+                    self.timing_changes_raw.append((measure, channel, data))
+                except ValueError:
+                    pass
+            case _:
+                self.raw_data.append((measure, channel, data))
+        self.measure_count = max(measure, self.measure_count)
 
-    # todo: add stops
+    def _decode_slots(self, measure, data):
+        values = [data[i:i+2] for i in range(0, len(data), 2)]
+        measure_start = self.measure_starts.get(measure, 0.0)
+        measure_beats = self.measure_lengths.get(measure, 1.0) * 4.0
 
-    for k, v in sorted(bpm_changes_raw.items()):
-        previous_time_anchor = time_anchors[-1]
-        previous_beat, previous_time, previous_bpm, current_beat, current_bpm = previous_time_anchor[0], previous_time_anchor[1], previous_time_anchor[2], k, v
-        beat_delta = current_beat - previous_beat
-        current_time = (beat_delta * (60.0 / previous_bpm)) + previous_time
-        if previous_beat == current_beat:
-            time_anchors.pop()
-        time_anchors.append((current_beat, current_time, current_bpm))
+        for i, v in enumerate(values):
+            if v == '00':
+                continue
 
-    return time_anchors
+            beat = measure_start + (measure_beats * i / len(values))
+            yield beat, v
 
-def _calculate_stop_duration(bpm, stop_val):
-    return (240.0 / bpm) * (stop_val / 192.0)
+    def _beat_to_time(self, beat):
+        floor_bpm_change_idx = bisect_right(self.bpm_changes_beat_only, beat) - 1
+        floor_bpm_change = self.bpm_changes[floor_bpm_change_idx]
+        floor_beat, floor_time, floor_bpm = floor_bpm_change.beat, floor_bpm_change.time, floor_bpm_change.bpm
+        beat_delta = beat - floor_beat
+        time_delta = beat_delta * (60.0 / floor_bpm)
+        return floor_time + time_delta
+    
+    def _calculate_stop_duration(self, v, bpm):
+        return (self.stop_table.get(v) * 5.0) / (bpm * 4.0)
+
+    def _build_notes(self, measure, channel, data):
+        note_chunk = []
+
+        for beat, v in self._decode_slots(measure, data):
+            note_chunk.append(
+                Note(
+                    beat=beat,
+                    time=self._beat_to_time(beat),
+                    lane=CHANNEL_TO_LANE.get(channel),
+                    wav_id=self.wav_table.get(v),
+                    is_ln_start=False,
+                    is_ln_end=(v == self.ln_obj),
+                    ln_end_time=0.0,
+                )
+            )
+
+        return note_chunk
+    
+    def _build_measure_lines(self):
+        self.measure_lines = [
+            MeasureLine(
+                beat=beat,
+                time=self._beat_to_time(beat),
+                measure=measure
+            )
+            for measure, beat in self.measure_starts.items()
+        ]
+    
+    def _resolve_lns(self):
+        self.notes.sort()
+        self.final_note = self.notes[-1]
+        notes_indexed_by_lane = [None] * 8
+
+        for note in self.notes:
+            if note.is_ln_end:
+                prev_note = notes_indexed_by_lane[note.lane]
+                if prev_note:
+                    prev_note.is_ln_start = True
+                    prev_note.ln_end_time = note.time
+
+            else:
+                notes_indexed_by_lane[note.lane] = note
 
 if __name__ == '__main__':
-    chart = parse_bms('./assets/AltMirroBell_MX_EXH.bme')
+    from pprint import pp
+    chart = _BMSParser('assets\AltMirroBell_MX_.bme').build()
     pp(chart)
