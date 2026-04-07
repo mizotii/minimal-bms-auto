@@ -24,6 +24,9 @@ class BPMChange:
     time: float
     bpm: float
 
+    def __lt__(self, other):
+        return self.beat < other.beat
+
 @dataclass
 class MeasureLine:
     beat: float
