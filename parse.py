@@ -55,7 +55,8 @@ class _BMSParser:
 
         self.bpm_changes_beat_only = []
 
-        self.final_note: Note = None
+        self.total_beats = 0.0
+        self.total_time = 0.0
 
     def build(self):
         self._read_file()
@@ -64,6 +65,7 @@ class _BMSParser:
         self._build_bpm_changes()
         self._build_events()
         self._resolve_lns()
+        self._calc_final_events()
 
         return Chart(
             title=self.title,
@@ -83,8 +85,8 @@ class _BMSParser:
             bgm_events=self.bgm_events,
             stop_events=self.stop_events,
             ln_obj=self.ln_obj,
-            total_beats=self.final_note.beat,
-            total_time=self.final_note.time,
+            total_beats=self.total_beats,
+            total_time=self.total_time,
         )
 
     def _read_file(self):
@@ -180,18 +182,13 @@ class _BMSParser:
             measure, channel, data = r
             match channel:
                 case '01': # BGM events
-                    for beat, v in self._decode_slots(measure, data):
-                        self.bgm_events.append(
-                            BGMEvent(
-                                beat,
-                                self._beat_to_time(beat),
-                                v,
-                            )
-                        )
+                    self._build_bgm_events(measure, data)
                 case c if c in CHANNEL_TO_LANE: # notes
-                    self.notes.extend(self._build_notes(measure, channel, data))
+                    self._build_notes(measure, channel, data)
 
         self._build_measure_lines()
+
+        self.bgm_events.sort()
 
     def _fill_header(self, match):
         k = match.group(1).upper()
@@ -272,8 +269,7 @@ class _BMSParser:
 
     def _decode_slots(self, measure, data):
         values = [data[i:i+2] for i in range(0, len(data), 2)]
-        measure_start = self.measure_starts.get(measure, 0.0)
-        measure_beats = self.measure_lengths.get(measure, 1.0) * 4.0
+        measure_start, measure_beats = self._get_measure_start_and_beats(measure)
 
         for i, v in enumerate(values):
             if v == '00':
@@ -293,23 +289,29 @@ class _BMSParser:
     def _calculate_stop_duration(self, v, bpm):
         return (self.stop_table.get(v) * 5.0) / (bpm * 4.0)
 
-    def _build_notes(self, measure, channel, data):
-        note_chunk = []
-
+    def _build_bgm_events(self, measure, data):
         for beat, v in self._decode_slots(measure, data):
-            note_chunk.append(
+            self.bgm_events.append(
+                BGMEvent(
+                    beat=beat,
+                    time=self._beat_to_time(beat),
+                    wav_id=v,
+                )
+            )
+
+    def _build_notes(self, measure, channel, data):
+        for beat, v in self._decode_slots(measure, data):
+            self.notes.append(
                 Note(
                     beat=beat,
                     time=self._beat_to_time(beat),
                     lane=CHANNEL_TO_LANE.get(channel),
-                    wav_id=self.wav_table.get(v),
+                    wav_id=v,
                     is_ln_start=False,
                     is_ln_end=(v == self.ln_obj),
                     ln_end_time=0.0,
                 )
             )
-
-        return note_chunk
     
     def _build_measure_lines(self):
         self.measure_lines = [
@@ -320,10 +322,14 @@ class _BMSParser:
             )
             for measure, beat in self.measure_starts.items()
         ]
+
+        self.measure_lines.sort()
     
     def _resolve_lns(self):
+        if not self.notes:
+            return
+        
         self.notes.sort()
-        self.final_note = self.notes[-1]
         notes_indexed_by_lane = [None] * 8
 
         for note in self.notes:
@@ -335,6 +341,15 @@ class _BMSParser:
 
             else:
                 notes_indexed_by_lane[note.lane] = note
+
+    def _calc_final_events(self):
+        last_note_beat = max((n.beat for n in self.notes), default=0.0)
+        last_measure_beat = sum(self._get_measure_start_and_beats(self.measure_count))
+        self.total_beats = max(last_note_beat, last_measure_beat)
+        self.total_time = self._beat_to_time(self.total_beats)
+
+    def _get_measure_start_and_beats(self, measure):
+        return self.measure_starts.get(measure, 0.0), self.measure_lengths.get(measure, 1.0) * 4.0
 
 if __name__ == '__main__':
     from pprint import pp

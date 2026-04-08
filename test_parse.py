@@ -245,9 +245,7 @@ class TestBPMChanges:
         # The BPMChange event itself must have time = 2.0 s.
         bms = (
             "#BPM 120\n#WAV01 a.wav\n\n"
-            "#00003:3C000000\n"   # 0x3C = 60, at beat 1.0 (slot 0 of measure 0? no...)
-            # slot 0 of measure 1 = beat 4.0
-            "#00103:3C000000\n"
+            "#00103:3C000000\n"   # 0x3C = 60, slot 0 of measure 1 = beat 4.0
             "#00211:01000000\n"
         )
         chart = parse(tmp_path, bms)
