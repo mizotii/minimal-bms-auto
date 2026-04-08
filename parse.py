@@ -1,5 +1,5 @@
 from chart import BGMEvent, BPMChange, Chart, Note, MeasureLine, StopEvent
-from bisect import bisect_left, bisect_right
+from bisect import bisect_right
 from parse_helpers import _decode_line
 import re
 from typing import List
@@ -165,6 +165,9 @@ class _BMSParser:
                     )
                 )
                 continue
+
+            else:
+                continue
             
             self.bpm_changes.append(
                 BPMChange(
@@ -259,10 +262,7 @@ class _BMSParser:
                 except ValueError:
                     pass
             case '03' | '08' | '09':
-                try:
-                    self.timing_changes_raw.append((measure, channel, data))
-                except ValueError:
-                    pass
+                self.timing_changes_raw.append((measure, channel, data))
             case _:
                 self.raw_data.append((measure, channel, data))
         self.measure_count = max(measure, self.measure_count)
