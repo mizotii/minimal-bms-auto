@@ -33,11 +33,17 @@ class MeasureLine:
     time: float
     measure: int
 
-@dataclass(order=True)
+    def __lt__(self, other):
+        return self.beat < other.beat
+
+@dataclass
 class BGMEvent:
     beat: float
     time: float
     wav_id: str
+
+    def __lt__(self, other):
+        return self.beat < other.beat
 
 @dataclass
 class StopEvent:
