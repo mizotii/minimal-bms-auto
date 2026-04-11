@@ -15,7 +15,7 @@ class RenderConfig:
     fps: float
     scroll_speed: float # pixels/second
     judgement_y_ratio: float # 0.0 top, 1.0 bottom
-    lane_widths: int
+    lane_widths: LaneWidths
     note_height: int
 
     background: Color
@@ -39,15 +39,12 @@ class RenderConfig:
     def judgement_y(self):
         return floor(self.judgement_y_ratio * self.window_height)
     
-    @property
     def lane_x(self, lane):
-        return self.lane_x_offset + (sum(self.lane_widths[:lane + 1]))
+        return self.lane_x_offset + (sum(self.lane_widths[:lane]))
     
-    @property
     def note_color(self, lane):
         return self.notes[lane]
     
-    @property
     def ln_body_color(self, lane):
         return self.ln_bodies[lane]
     
@@ -56,15 +53,19 @@ class Renderer(ABC):
     def begin_frame(self):
         ...
 
-    def draw_note(self, config, x, y, width, height, lane):
+    @abstractmethod
+    def draw_note(self, x, y, width, height, lane):
         ...
 
-    def draw_ln_body(self, config, x, top_y, width, bottom_y, lane):
+    @abstractmethod
+    def draw_ln_body(self, x, top_y, width, bottom_y, lane):
         ...
 
+    @abstractmethod
     def end_frame(self):
         ...
 
+    @abstractmethod
     def poll_quit(self):
         ...
 
@@ -85,9 +86,41 @@ class Renderer(ABC):
 
 class PygameRenderer(Renderer):
     def __init__(self, config: RenderConfig):
-        pygame.init()
-        pygame.display.set_mode(config.window_width, config.window_height)
-        clock = pygame.time.Clock()
-        running = True
+        self.config = config
 
-        
+        pygame.init()
+        pygame.font.init()
+        self.screen = pygame.display.set_mode((self.config.window_width, self.config.window_height))
+        self.clock = pygame.time.Clock()
+        self.running = True
+
+    def begin_frame(self):
+        self.screen.fill(self.config.background)
+
+    def draw_note(self, x, y, width, height, lane):
+        color = self.config.notes[lane]
+
+        pygame.draw.rect(
+            self.screen,
+            color,
+            (x, y, width, height)
+        )
+    
+    def draw_ln_body(self, x, top_y, width, bottom_y, lane):
+        color = self.config.ln_bodies[lane]
+        height = bottom_y - top_y
+
+        pygame.draw.rect(
+            self.screen,
+            color,
+            (x, top_y, width, height)
+        )
+
+    def end_frame(self):
+        pygame.display.flip()
+        self.clock.tick(self.config.fps)
+
+    def poll_quit(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                pygame.quit()
