@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Dict, List
 
-@dataclass(order=True)
+@dataclass
 class Note:
     """A single playfield note.
 
@@ -18,6 +18,9 @@ class Note:
     is_ln_end: bool
     ln_end_time: float
 
+    def __lt__(self, other):
+        return self.time < other.time
+
 @dataclass
 class BPMChange:
     beat: float
@@ -25,7 +28,7 @@ class BPMChange:
     bpm: float
 
     def __lt__(self, other):
-        return self.beat < other.beat
+        return self.time < other.time
 
 @dataclass
 class MeasureLine:
@@ -34,7 +37,7 @@ class MeasureLine:
     measure: int
 
     def __lt__(self, other):
-        return self.beat < other.beat
+        return self.time < other.time
 
 @dataclass
 class BGMEvent:
@@ -43,7 +46,7 @@ class BGMEvent:
     wav_id: str
 
     def __lt__(self, other):
-        return self.beat < other.beat
+        return self.time < other.time
 
 @dataclass
 class StopEvent:
