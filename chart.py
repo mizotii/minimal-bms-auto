@@ -1,66 +1,60 @@
 """Data classes for a parsed BMS chart"""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List
 
 @dataclass
-class Note:
+class Event:
+    beat: float
+    time: float
+
+    def __lt__(self, other):
+        return self.time < other.time
+    
+@dataclass
+class SoundEvent(Event):
+    wav_id: str
+    
+@dataclass
+class Note(SoundEvent):
     """A single playfield note.
 
     ln_end_time is only meaningful when is_ln_start is True.
     is_ln_end notes are not rendered, their sound fires at the head.
     """
-    beat: float
-    time: float
     lane: int          # 0–6 = keys, 7 = scratch
-    wav_id: str
     is_ln_start: bool
     is_ln_end: bool
     ln_end_time: float
 
-    def __lt__(self, other):
-        return self.time < other.time
-
 @dataclass
-class BPMChange:
-    beat: float
-    time: float
+class BPMChange(Event):
     bpm: float
 
-    def __lt__(self, other):
-        return self.time < other.time
-
 @dataclass
-class MeasureLine:
-    beat: float
-    time: float
+class MeasureLine(Event):
     measure: int
 
-    def __lt__(self, other):
-        return self.time < other.time
+@dataclass
+class BGMEvent(SoundEvent):
+    pass
 
 @dataclass
-class BGMEvent:
-    beat: float
-    time: float
-    wav_id: str
-
-    def __lt__(self, other):
-        return self.time < other.time
-
-@dataclass
-class StopEvent:
+class StopEvent(Event):
     """A scroll stop. The chart freezes for `duration` seconds at this beat."""
-    beat: float
-    time: float
     duration: float  # seconds
 
 @dataclass
 class Chart:
     """Top-level container returned by parse_bms. All lists are sorted by time."""
+    filepath: Path
+
     # headers
     title: str
+    subtitle: str
     artist: str
+    subartist: str
     genre: str
     initial_bpm: float
     rank: int
@@ -74,6 +68,7 @@ class Chart:
     stop_table: Dict[str, float]
 
     # events
+    sound_events: List[SoundEvent]
     notes: List[Note]
     bpm_changes: List[BPMChange]
     measure_lines: List[MeasureLine]
