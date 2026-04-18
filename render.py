@@ -117,8 +117,10 @@ class PygameRenderer(Renderer):
         )
 
     def end_frame(self):
-        pygame.display.flip()
         self.clock.tick(self.config.fps)
+
+    def flip(self):
+        pygame.display.flip()
 
     def poll_quit(self):
         for event in pygame.event.get():
