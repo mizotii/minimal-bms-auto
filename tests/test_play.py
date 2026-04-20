@@ -5,6 +5,7 @@ Tests are written against intended behavior. Failures indicate bugs in Player.
 """
 
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock, call
 from chart import Chart, Note, BPMChange, MeasureLine, BGMEvent, StopEvent
 from render import RenderConfig
@@ -33,9 +34,12 @@ def make_measure_line(time, measure=0, beat=0.0):
 def make_chart(notes=None, bpm_changes=None, measure_lines=None,
                bgm_events=None, initial_bpm=120.0, total_time=60.0):
     return Chart(
-        title='Test', artist='', genre='', initial_bpm=initial_bpm,
+        filepath=Path('.'),
+        title='Test', subtitle='', artist='', subartist='', genre='',
+        initial_bpm=initial_bpm,
         rank=2, total=200.0, level=5, player=1,
         wav_table={}, bpm_table={}, stop_table={},
+        sound_events=[],
         notes=sorted(notes or []),
         bpm_changes=sorted(bpm_changes or [make_bpm_change(0.0, initial_bpm)]),
         measure_lines=sorted(measure_lines or []),

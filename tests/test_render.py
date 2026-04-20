@@ -251,13 +251,19 @@ class TestDrawLnBody:
 # ---------------------------------------------------------------------------
 
 class TestEndFrame:
-    def test_flips_display(self, renderer, mock_pygame):
-        renderer.end_frame()
-        mock_pygame.display.flip.assert_called_once()
-
     def test_ticks_clock_at_fps(self, renderer, mock_pygame):
         renderer.end_frame()
         renderer.clock.tick.assert_called_once_with(renderer.config.fps)
+
+    def test_does_not_flip_display(self, renderer, mock_pygame):
+        renderer.end_frame()
+        mock_pygame.display.flip.assert_not_called()
+
+
+class TestFlip:
+    def test_flip_calls_display_flip(self, renderer, mock_pygame):
+        renderer.flip()
+        mock_pygame.display.flip.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

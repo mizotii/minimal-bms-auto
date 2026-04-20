@@ -1,12 +1,12 @@
+from audio import Mixer
 from bisect import bisect_right
 from chart import Chart
 from render import Renderer, RenderConfig
-from pprint import pp
 
 PREROLL_DURATION = 2.0
 
 class Player:
-    def __init__(self, chart: Chart, renderer: Renderer, config: RenderConfig, audio=None):
+    def __init__(self, chart: Chart, renderer: Renderer, config: RenderConfig, audio: Mixer=None):
         self.chart = chart
         self.renderer = renderer(config)
         self.config = config
@@ -110,4 +110,4 @@ class Player:
         if self.is_playing:
             self.current_time += time_delta
             if self.audio:
-                self.audio.update()
+                self.audio.update(self.current_time)

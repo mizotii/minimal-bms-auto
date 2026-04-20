@@ -1,5 +1,6 @@
-from chart import BGMEvent, BPMChange, Chart, Note, MeasureLine, StopEvent
+from chart import BGMEvent, BPMChange, Chart, Note, MeasureLine, SoundEvent, StopEvent
 from bisect import bisect_right
+from pathlib import Path
 from parse_helpers import _decode_line
 import re
 from typing import List
@@ -23,7 +24,9 @@ class _BMSParser:
 
         # headers
         self.title = ''
+        self.subtitle = ''
         self.artist = ''
+        self.subartist = ''
         self.genre = ''
         self.initial_bpm = 120.0
         self.rank = 0
@@ -33,6 +36,7 @@ class _BMSParser:
         self.ln_obj = ''
 
         # events
+        self.sound_events: List[SoundEvent] = []
         self.notes: List[Note] = []
         self.bpm_changes: List[BPMChange] = []
         self.measure_lines: List[MeasureLine] = []
@@ -66,10 +70,14 @@ class _BMSParser:
         self._build_events()
         self._resolve_lns()
         self._calc_final_events()
+        self._merge_timed_events()
 
         return Chart(
+            filepath=Path(self.filepath),
             title=self.title,
+            subtitle=self.subtitle,
             artist=self.artist,
+            subartist=self.subartist,
             genre=self.genre,
             initial_bpm=self.initial_bpm,
             rank=self.rank,
@@ -79,6 +87,7 @@ class _BMSParser:
             wav_table=self.wav_table,
             bpm_table=self.bpm_table,
             stop_table=self.stop_table,
+            sound_events=self.sound_events,
             notes=self.notes,
             bpm_changes=self.bpm_changes,
             measure_lines=self.measure_lines,
@@ -200,8 +209,12 @@ class _BMSParser:
         match k:
             case 'TITLE':
                 self.title = v
+            case 'SUBTITLE':
+                self.subtitle = v
             case 'ARTIST':
                 self.artist = v
+            case 'SUBARTIST':
+                self.subartist = v
             case 'GENRE':
                 self.genre = v
             case 'BPM':
@@ -350,8 +363,13 @@ class _BMSParser:
 
     def _get_measure_start_and_beats(self, measure):
         return self.measure_starts.get(measure, 0.0), self.measure_lengths.get(measure, 1.0) * 4.0
+    
+    def _merge_timed_events(self):
+        self.sound_events = self.notes + self.bgm_events
+        self.sound_events.sort()
 
 if __name__ == '__main__':
     from pprint import pp
-    chart = _BMSParser('assets\AltMirroBell_MX_.bme').build()
-    pp(chart)
+    chart = _BMSParser('misc\\minimal-bms-auto - コピー\\ceu\\7keys_white.bms').build()
+    # pp([e.time for e in chart.sound_events])
+    pp(chart.bgm_events)
