@@ -13,6 +13,7 @@ class Mixer:
 
         self.wav_table = chart.wav_table
         self.sound_events = chart.sound_events
+        self.sound_events_time_only = [e.time for e in self.sound_events]
 
         self.current_time = -2.0
 
@@ -34,7 +35,7 @@ class Mixer:
                 self.sound_table[k] = mixer.Sound(str(path))
 
     def seek(self, time):
-        self._next_sound_idx = bisect_right(self.sound_events, time) - 1
+        self._next_sound_idx = bisect_right(self.sound_events_time_only, time) - 1
 
     def update(self, time):
         while self._next_sound_idx < len(self.sound_events) and self.sound_events[self._next_sound_idx].time <= time:
