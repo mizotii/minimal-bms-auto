@@ -125,10 +125,9 @@ class TestUpdate:
     def test_update_advances_time_when_playing(self):
         p = make_player()
         p.start()
+        t_before = p.current_time
         p.update(0.5)
-        # current_time starts at -PREROLL_DURATION; after update it's -PREROLL + 0.5
-        # we just care it moved forward by 0.5
-        assert p.current_time == pytest.approx(-2.0 + 0.5)
+        assert p.current_time == pytest.approx(t_before + 0.5)
 
     def test_update_does_not_advance_time_when_paused(self):
         p = make_player()
@@ -317,8 +316,7 @@ class TestRenderFrame:
         chart  = chart  or make_chart()
         config = config or make_config()
         mock_renderer = MagicMock()
-        mock_renderer_cls = MagicMock(return_value=mock_renderer)
-        player = Player(chart, mock_renderer_cls, config)
+        player = Player(chart, mock_renderer, config)
         return player, mock_renderer
 
     def test_begin_frame_called_first(self):

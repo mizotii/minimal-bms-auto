@@ -7,7 +7,7 @@ Integration tests use real chart files in assets/.
 
 import os
 import pytest
-from parse import _BMSParser
+from parse import BMSParser
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ def make_bms(tmp_path, content: str, filename='test.bms') -> str:
 
 
 def parse(tmp_path, content: str):
-    return _BMSParser(make_bms(tmp_path, content)).build()
+    return BMSParser(make_bms(tmp_path, content)).build()
 
 
 # A complete minimal BMS that should parse successfully.
@@ -490,7 +490,7 @@ class TestMultipleDataLines:
 # ---------------------------------------------------------------------------
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
-CEU_DIR    = os.path.join(ASSETS_DIR, 'ceu')
+CEU_DIR    = os.path.join(os.path.dirname(__file__), '..', 'sample', 'ceu')
 
 
 @pytest.mark.skipif(not os.path.isdir(ASSETS_DIR), reason='assets/ not present')
@@ -499,7 +499,7 @@ class TestIntegrationAltMirroBell:
 
     @pytest.fixture(scope='class')
     def chart(self):
-        return _BMSParser(self.FILE).build()
+        return BMSParser(self.FILE).build()
 
     def test_parses_without_error(self, chart):
         assert chart is not None
@@ -563,13 +563,13 @@ class TestIntegrationAltMirroBell:
         assert len(chart.wav_table) > 0
 
 
-@pytest.mark.skipif(not os.path.isdir(CEU_DIR), reason='assets/ceu/ not present')
-class TestIntegrationCeuKiritan:
-    FILE = os.path.join(CEU_DIR, '7keys_kiritan.bms')
+@pytest.mark.skipif(not os.path.isdir(CEU_DIR), reason='sample/ceu/ not present')
+class TestIntegrationCeuWhite:
+    FILE = os.path.join(CEU_DIR, '7keys_white.bms')
 
     @pytest.fixture(scope='class')
     def chart(self):
-        return _BMSParser(self.FILE).build()
+        return BMSParser(self.FILE).build()
 
     def test_parses_without_error(self, chart):
         assert chart is not None
@@ -581,8 +581,8 @@ class TestIntegrationCeuKiritan:
         assert chart.initial_bpm == pytest.approx(135.0)
 
     def test_note_count(self, chart):
-        # Known chart; 2323 total notes including LN ends
-        assert 2000 <= len(chart.notes) <= 3000
+        # 7keys_white difficulty
+        assert 3000 <= len(chart.notes) <= 4000
 
     def test_all_lanes_valid(self, chart):
         assert all(0 <= n.lane <= 7 for n in chart.notes)
@@ -593,11 +593,12 @@ class TestIntegrationCeuKiritan:
         assert chart.bpm_changes[0].bpm == pytest.approx(135.0)
 
     def test_total_duration_reasonable(self, chart):
-        # Song is ~2 min 20 s
-        assert 130.0 <= chart.total_time <= 160.0
+        # Song is ~2 min 18 s
+        assert 130.0 <= chart.total_time <= 150.0
 
     def test_ln_obj(self, chart):
-        assert chart.ln_obj == 'ZZ'
+        # 7keys_white uses no LNOBJ
+        assert chart.ln_obj == ''
 
     def test_ln_pairs_balanced(self, chart):
         heads = sum(1 for n in chart.notes if n.is_ln_start)
