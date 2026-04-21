@@ -79,3 +79,16 @@ class Chart:
     ln_obj: str
     total_beats: float
     total_time: float
+
+    def __repr__(self) -> str:
+        minutes, seconds = divmod(self.total_time, 60)
+        parts = [f'Chart("{self.title}"']
+        if self.artist:
+            parts.append(f'artist="{self.artist}"')
+        if self.subartist:
+            parts.append(f'subartist="{self.subartist}"')
+        if self.genre:
+            parts.append(f'genre="{self.genre}"')
+        parts.append(f'bpm={self.initial_bpm:g}')
+        parts.append(f'duration={int(minutes)}:{seconds:05.2f})')
+        return ', '.join(parts)
