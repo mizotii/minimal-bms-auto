@@ -18,7 +18,7 @@ CHANNEL_TO_LANE = {
     '16': 7,
 }
 
-class _BMSParser:
+class BMSParser:
     def __init__(self, filepath) -> None:
         self.filepath = filepath
 
@@ -369,7 +369,4 @@ class _BMSParser:
         self.sound_events.sort()
 
 if __name__ == '__main__':
-    from pprint import pp
-    chart = _BMSParser('misc\\minimal-bms-auto - コピー\\ceu\\7keys_white.bms').build()
-    # pp([e.time for e in chart.sound_events])
-    pp(chart.bgm_events)
+    pass

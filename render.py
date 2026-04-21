@@ -87,9 +87,12 @@ class Renderer(ABC):
 class PygameRenderer(Renderer):
     def __init__(self, config: RenderConfig):
         self.config = config
+        self.setup()
 
         pygame.init()
         pygame.font.init()
+
+    def setup(self):
         self.screen = pygame.display.set_mode((self.config.window_width, self.config.window_height))
         self.clock = pygame.time.Clock()
         self.running = True

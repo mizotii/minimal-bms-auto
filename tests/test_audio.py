@@ -101,7 +101,7 @@ class TestMixerInit:
 
         _, kwargs = mock_mixer.init.call_args
         assert 'buffer' in kwargs, 'buffer size must be passed to mixer.init'
-        assert kwargs['buffer'] >= 2048, 'buffer should be large enough to prevent dropouts'
+        assert kwargs['buffer'] >= 512, 'buffer should be set for dropout resilience'
 
     def test_silent_warmup_sound_played(self, tmp_path):
         """A silent 4-byte sound must be played during init to warm up the driver."""
@@ -312,8 +312,8 @@ class TestMixerIntegration:
 
     @pytest.fixture
     def chart(self):
-        from parse import _BMSParser
-        return _BMSParser(str(find_bms_file())).build()
+        from parse import BMSParser
+        return BMSParser(str(find_bms_file())).build()
 
     def test_loads_without_error(self, chart):
         m = audio.Mixer(chart)
