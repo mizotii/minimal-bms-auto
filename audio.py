@@ -3,6 +3,10 @@ from pygame import mixer
 from typing import Dict
 from chart import Chart
 
+BUFFER_SIZE = 512
+SAMPLE_RATE = 44100
+AUDIO_LATENCY = BUFFER_SIZE / SAMPLE_RATE
+
 class Mixer:
     def __init__(self, chart: Chart):
         self.quit()
@@ -23,7 +27,8 @@ class Mixer:
         _play_silent_sound()
 
     def init(self):
-        mixer.init(channels=128, buffer=2048)
+        mixer.init(frequency=SAMPLE_RATE, size=-16, channels=2, buffer=BUFFER_SIZE)
+        mixer.set_num_channels(512)
 
     def quit(self):
         mixer.quit()
@@ -31,7 +36,9 @@ class Mixer:
     def load_sounds(self):
         for k, sound in self.wav_table.items():
             path = self.parent_dir / sound
-            if path.exists():
+            if not path.exists():
+                path = _resolve_path(path)
+            if path is not None:
                 self.sound_table[k] = mixer.Sound(str(path))
 
     def seek(self, time):
@@ -46,3 +53,9 @@ class Mixer:
 
 def _play_silent_sound():
     mixer.Sound(buffer=bytearray(4)).play()
+
+def _resolve_path(path):
+    for ext in ('.ogg', '.mp3', '.wav'):
+        maybe_valid_path = path.with_suffix(ext)
+        if maybe_valid_path.exists():
+            return maybe_valid_path
