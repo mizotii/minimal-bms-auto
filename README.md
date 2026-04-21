@@ -34,3 +34,7 @@ Defaults to `sample/ceu/7keys_white.bms` and `config.json`.
 ```sh
 python -m pytest tests/
 ```
+
+## Note (AI)
+
+All unit/integration tests were written by AI, but I manually reviewed all of them.
