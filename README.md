@@ -4,6 +4,10 @@ A minimal BMS 7K+S chart player written in Python using pygame. I wrote this for
 
 This parses a `.bms`/`.bme` file, builds a chart representation, renders falling notes in a pygame window, and plays keysounds + BGM audio in sync.
 
+## Demo
+
+https://github.com/user-attachments/assets/2c8ad7ce-cfaa-4a4b-ae3e-59bc9218d02a
+
 ## Requirements
 
 - Python 3.12+
