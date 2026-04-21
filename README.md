@@ -1,6 +1,6 @@
 # minimal-bms-auto
 
-A minimal BMS 7K+S chart player written in Python using pygame. I wrote this for fun because I wanted to understand how BMS is parsed and how players are (generally) built. This is the most fun I have ever had completing a project.
+A minimal BMS 7K+S chart player written in Python using pygame. I wrote this for fun because I wanted to understand how BMS is parsed and how players are (generally) built. I structured it the way I did because I eventually want to port this to some minimal LED display that just plays BMS charts nonstop. This is the most fun I have ever had completing a project.
 
 This parses a `.bms`/`.bme` file, builds a chart representation, renders falling notes in a pygame window, and plays keysounds + BGM audio in sync.
 
